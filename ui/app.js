@@ -1042,7 +1042,7 @@ elements.prompt.addEventListener("keydown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const commandKey = event.metaKey || event.ctrlKey;
-  const increaseTextSize = event.key === "+" || (event.key === "=" && event.shiftKey) || event.code === "NumpadAdd";
+  const increaseTextSize = event.key === "+" || event.key === "=" || event.code === "Equal" || event.code === "NumpadAdd";
   const decreaseTextSize = event.key === "-" || event.key === "_" || event.code === "NumpadSubtract";
   if (commandKey && increaseTextSize) {
     event.preventDefault();
