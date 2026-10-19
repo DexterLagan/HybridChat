@@ -389,19 +389,39 @@ function appendPlain(parent, text) {
   parent.append(node);
 }
 
-function boxedAnswer(parent, text) {
-  const pattern = /\\boxed\{([^{}]*)\}/g;
-  let start = 0;
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    parent.append(document.createTextNode(text.slice(start, match.index)));
-    const marked = document.createElement("span");
-    marked.className = "answer-inline";
-    marked.textContent = match[0];
-    parent.append(marked);
-    start = match.index + match[0].length;
+function stripBoxedDelimiters(text) {
+  const marker = "\\boxed{";
+  let result = "";
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = text.indexOf(marker, cursor);
+    if (start < 0) break;
+    result += text.slice(cursor, start);
+
+    const contentStart = start + marker.length;
+    let depth = 1;
+    let closing = -1;
+    for (let index = contentStart; index < text.length; index += 1) {
+      const character = text[index];
+      if (character !== "{" && character !== "}") continue;
+      let backslashes = 0;
+      for (let previous = index - 1; previous >= 0 && text[previous] === "\\"; previous -= 1) {
+        backslashes += 1;
+      }
+      if (backslashes % 2 === 1) continue;
+      if (character === "{") depth += 1;
+      else depth -= 1;
+      if (depth === 0) {
+        closing = index;
+        break;
+      }
+    }
+
+    if (closing < 0) return result + text.slice(start);
+    result += stripBoxedDelimiters(text.slice(contentStart, closing));
+    cursor = closing + 1;
   }
-  parent.append(document.createTextNode(text.slice(start)));
+  return result + text.slice(cursor);
 }
 
 function appendSegments(parent, text, depth = 0) {
@@ -444,7 +464,7 @@ function appendSegments(parent, text, depth = 0) {
       label.textContent = next.tag === "latent" ? "latent thought" : next.tag;
       const content = document.createElement("div");
       content.className = "hybrid-block-body";
-      if (next.tag === "answer") boxedAnswer(content, body);
+      if (next.tag === "answer") content.textContent = stripBoxedDelimiters(body);
       else content.textContent = body;
       block.append(label, content);
       parent.append(block);
@@ -618,7 +638,9 @@ function findStreamingAssistant(session) {
 function compactAssistantAnswer(text) {
   const answers = [...text.matchAll(/<answer>([\s\S]*?)<\/answer>/g)];
   const answer = answers.at(-1)?.[1]?.trim();
-  return answer || text.replace(/<latent>[\s\S]*?<\/latent>/g, "").trim().slice(0, 1800);
+  return answer
+    ? stripBoxedDelimiters(answer)
+    : text.replace(/<latent>[\s\S]*?<\/latent>/g, "").trim().slice(0, 1800);
 }
 
 function conversationQuestion(session, latestUserMessage) {

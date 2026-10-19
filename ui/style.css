@@ -562,11 +562,6 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
-.answer-inline {
-  color: #e5c07b;
-  font-weight: 700;
-}
-
 .message-error {
   padding: 10px 12px;
   border: 1px solid #623844;
