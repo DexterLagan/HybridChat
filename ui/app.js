@@ -45,6 +45,17 @@ const defaultSettings = {
   maxTokens: "",
 };
 
+const TEXT_SCALE_STORAGE_KEY = "hybridchat-text-scale";
+const MIN_TEXT_SCALE = 0.8;
+const MAX_TEXT_SCALE = 1.6;
+const TEXT_SCALE_STEP = 0.1;
+
+function normalizeTextScale(value) {
+  const scale = Number(value);
+  if (!Number.isFinite(scale) || scale === 0) return 1;
+  return Math.round(Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, scale)) * 100) / 100;
+}
+
 let settings = { ...defaultSettings };
 let sessions = [];
 let activeSessionId = null;
@@ -54,9 +65,18 @@ let healthInFlight = false;
 let newestHealth = null;
 let modelCatalog = null;
 let selectedModelId = localStorage.getItem("hybridchat-selected-model") || "";
+let textScale = normalizeTextScale(localStorage.getItem(TEXT_SCALE_STORAGE_KEY));
 let modelActionBusy = false;
 let modelDownloadActive = false;
 let pendingDownloadIds = [];
+
+document.documentElement.style.zoom = String(textScale);
+
+function setTextScale(value) {
+  textScale = normalizeTextScale(value);
+  document.documentElement.style.zoom = String(textScale);
+  localStorage.setItem(TEXT_SCALE_STORAGE_KEY, textScale.toFixed(2));
+}
 
 function makeId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -1022,7 +1042,18 @@ elements.prompt.addEventListener("keydown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const commandKey = event.metaKey || event.ctrlKey;
-  if (commandKey && event.key.toLowerCase() === "t") {
+  const increaseTextSize = event.key === "+" || (event.key === "=" && event.shiftKey) || event.code === "NumpadAdd";
+  const decreaseTextSize = event.key === "-" || event.key === "_" || event.code === "NumpadSubtract";
+  if (commandKey && increaseTextSize) {
+    event.preventDefault();
+    setTextScale(textScale + TEXT_SCALE_STEP);
+  } else if (commandKey && decreaseTextSize) {
+    event.preventDefault();
+    setTextScale(textScale - TEXT_SCALE_STEP);
+  } else if (commandKey && event.key === "0") {
+    event.preventDefault();
+    setTextScale(1);
+  } else if (commandKey && event.key.toLowerCase() === "t") {
     event.preventDefault();
     createSession();
   } else if (commandKey && event.key.toLowerCase() === "w") {
