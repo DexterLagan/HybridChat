@@ -1,0 +1,12 @@
+torch==2.11.0
+mlx-lm==0.32.2
+transformers==5.13.0
+accelerate==1.14.0
+safetensors==0.8.0
+tokenizers==0.22.2
+huggingface-hub==1.22.0
+fastapi==0.146.0
+uvicorn==0.54.0
+python-dotenv==1.2.2
+tavily-python==0.7.26
+tqdm

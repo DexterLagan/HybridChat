@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101114" />
+    <title>HybridChat</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true"><span>›</span><i></i></div>
+        <div class="brand-name">hybridchat</div>
+        <div class="top-divider"></div>
+        <nav id="tabs" class="tabs" aria-label="Chat sessions"></nav>
+        <button id="new-tab" class="icon-button new-tab" title="New chat (⌘T)" aria-label="New chat">+</button>
+        <div class="top-spacer"></div>
+        <div class="model-controls">
+          <select id="model-select" class="model-select" aria-label="HybridAgent model"></select>
+          <button id="model-action" class="model-action" title="Load selected model">load</button>
+          <button id="manage-models" class="quiet-button" title="Download/manage models">models</button>
+        </div>
+        <div class="connection" title="Local HybridAgent server status">
+          <span id="connection-dot" class="connection-dot offline"></span>
+          <span id="connection-label">checking server</span>
+        </div>
+        <button id="settings-button" class="quiet-button" title="Settings">settings</button>
+      </header>
+
+      <main id="conversation" class="conversation" aria-live="polite"></main>
+
+      <footer class="composer-area">
+        <div class="composer-box">
+          <span class="composer-prompt" aria-hidden="true">›</span>
+          <textarea id="prompt" rows="1" placeholder="Ask HybridAgent…" aria-label="Message"></textarea>
+          <button id="stop-button" class="stop-button hidden" title="Stop displaying this response; server inference may continue">stop</button>
+          <button id="send-button" class="send-button" title="Send message (Enter)">send <span>↵</span></button>
+        </div>
+        <div class="statusline">
+          <div class="key-hints"><span>enter</span> send <b>·</b> <span>shift+enter</span> newline <b>·</b> <span>esc</span> stop display <b>·</b> <span>⌘T</span> new tab <b>·</b> <span>⌘W</span> close tab</div>
+          <div id="status-detail" class="status-detail">HybridAgent · local</div>
+        </div>
+      </footer>
+    </div>
+
+    <div id="model-setup-modal" class="modal-backdrop hidden" role="presentation">
+      <section class="settings-panel setup-panel" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+        <div class="settings-heading">
+          <div>
+            <div class="eyebrow">FIRST-RUN SETUP</div>
+            <h2 id="setup-title">Confirm HybridAgent model download?</h2>
+          </div>
+          <button id="setup-close" class="icon-button" aria-label="Close model setup">×</button>
+        </div>
+        <p id="setup-copy" class="setup-copy">HybridChat downloads the official BF16 checkpoint, converts it to a Mac-native MLX 6-bit model, and keeps the HybridLink adapter for latent reasoning.</p>
+        <div id="model-choice-list" class="model-choice-list"></div>
+        <div id="storage-summary" class="storage-summary"></div>
+        <div id="setup-alert" class="setup-alert hidden" role="status"></div>
+        <div id="download-status" class="download-status hidden">
+          <div class="download-status-top"><span id="download-stage">Preparing…</span><span id="download-percent">0%</span></div>
+          <div class="progress-track"><div id="download-progress-bar" class="progress-bar"></div></div>
+          <div id="download-detail" class="download-detail"></div>
+          <div id="setup-runtime-status" class="setup-runtime-status"></div>
+        </div>
+        <div class="settings-actions">
+          <button id="setup-cancel" class="quiet-button">later</button>
+          <button id="setup-download" class="send-button">download & install <span>↵</span></button>
+        </div>
+      </section>
+    </div>
+
+    <div id="settings-modal" class="modal-backdrop hidden" role="presentation">
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="settings-heading">
+          <div>
+            <div class="eyebrow">HYBRIDCHAT</div>
+            <h2 id="settings-title">Chat settings</h2>
+          </div>
+          <button id="settings-close" class="icon-button" aria-label="Close settings">×</button>
+        </div>
+        <div class="managed-runtime-card">
+          <div class="managed-runtime-title">Managed local inference</div>
+          <div class="managed-runtime-copy">HybridChat starts and stops its MLX server and releases model memory when you unload a model or quit the app.</div>
+          <div class="openai-url-row"><span>OpenAI API</span><code id="openai-url">engine is stopped</code><button id="copy-openai-url" class="quiet-button">copy</button></div>
+        </div>
+        <div class="field-row">
+          <label class="field-group">
+            <span class="field-label">Temperature</span>
+            <input id="temperature" class="settings-input" type="number" min="0" max="2" step="0.1" value="0.6" />
+          </label>
+          <label class="field-group">
+            <span class="field-label">Max steps <span class="field-note">blank = server default</span></span>
+            <input id="max-tokens" class="settings-input" type="number" min="1" step="128" placeholder="4096" />
+          </label>
+        </div>
+        <p class="settings-note">HybridAgent’s latent reasoning, tool calls, and results are rendered inline. The engine produces a complete trajectory before sending its SSE response, so the app shows a thinking state while inference runs. Stop hides the response; it cannot interrupt an already-running generation.</p>
+        <div class="settings-actions">
+          <button id="settings-cancel" class="quiet-button">cancel</button>
+          <button id="settings-save" class="send-button">save settings <span>↵</span></button>
+        </div>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
