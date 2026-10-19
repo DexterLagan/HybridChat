@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import re
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,11 @@ class ModelManager:
         self.engine: MLXHybridAgent | None = None
         self.model_id: str | None = None
         self.loaded_at: float | None = None
+        self.mlx_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hybridchat-mlx")
+
+    async def run_mlx(self, function, *args):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.mlx_executor, function, *args)
 
     def status(self) -> dict[str, Any]:
         with self.lock:
@@ -104,6 +111,25 @@ def build_openai_response(model_id: str, result: dict[str, Any]) -> dict[str, An
             "wall_time_s",
         )
     }
+    prompt_tokens = int(result.get("prompt_tokens", 0))
+    completion_tokens = int(result.get("generation_steps", 0))
+    return {
+        "id": f"chatcmpl-hybrid-{uuid.uuid4().hex[:12]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model_id,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": content},
+            "finish_reason": "stop",
+        }],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        },
+        "hybrid": meta,
+    }
 
 
 def text_content(content: Any) -> str:
@@ -140,25 +166,6 @@ def question_from_messages(messages: list[dict]) -> str:
         history_text = "\n".join(history)
         return f"Conversation so far:\n{history_text}\n\nCurrent question:\n{question}"
     return question
-    prompt_tokens = int(result.get("prompt_tokens", 0))
-    completion_tokens = int(result.get("generation_steps", 0))
-    return {
-        "id": f"chatcmpl-hybrid-{uuid.uuid4().hex[:12]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model_id,
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": content},
-            "finish_reason": "stop",
-        }],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        },
-        "hybrid": meta,
-    }
 
 
 def event_json(value: dict[str, Any]) -> str:
@@ -179,10 +186,14 @@ def create_app(manager: ModelManager) -> FastAPI:
         return {"object": "list", "data": records}
 
     @app.post("/admin/models/load")
-    def load_model(request: dict):
+    async def load_model(request: dict):
         model_id = request.get("model_id") or request.get("modelId")
         try:
-            return manager.load(str(model_id), request.get("model_path") or request.get("modelPath"))
+            return await manager.run_mlx(
+                manager.load,
+                str(model_id),
+                request.get("model_path") or request.get("modelPath"),
+            )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -192,21 +203,21 @@ def create_app(manager: ModelManager) -> FastAPI:
             raise HTTPException(status_code=500, detail=f"model load failed: {error}") from error
 
     @app.post("/admin/models/unload")
-    def unload_model():
+    async def unload_model():
         try:
-            return manager.unload()
+            return await manager.run_mlx(manager.unload)
         except Exception as error:
             logger.exception("model unload failed")
             raise HTTPException(status_code=500, detail=f"model unload failed: {error}") from error
 
     @app.post("/v1/chat/completions")
-    def chat_completions(request: dict):
-        status = manager.status()
+    async def chat_completions(request: dict):
+        status = await manager.run_mlx(manager.status)
         if not status["loaded"]:
             raise HTTPException(status_code=409, detail="Load a HybridAgent model before chatting")
         model_id = status["model"]
         try:
-            result = manager.generate(request)
+            result = await manager.run_mlx(manager.generate, request)
         except Exception as error:
             logger.exception("generation failed")
             raise HTTPException(status_code=500, detail=f"generation failed: {error}") from error
