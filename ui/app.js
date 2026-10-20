@@ -444,6 +444,26 @@ function stripBoxedDelimiters(text) {
   return result + text.slice(cursor);
 }
 
+function appendThinkingDisclosure(parent, tag, body, depth) {
+  const latent = tag === "latent";
+  const disclosure = document.createElement("details");
+  disclosure.className = latent
+    ? "hybrid-block latent-block reasoning-disclosure"
+    : "reasoning-disclosure think-disclosure";
+
+  const summary = document.createElement("summary");
+  summary.className = latent ? "hybrid-block-label" : "reasoning-summary";
+  summary.textContent = latent ? "latent thought" : "thinking";
+
+  const content = document.createElement("div");
+  content.className = latent ? "hybrid-block-body latent-thought-body" : "reasoning-segment";
+  if (latent) content.textContent = body;
+  else appendSegments(content, body, depth + 1);
+
+  disclosure.append(summary, content);
+  parent.append(disclosure);
+}
+
 function appendSegments(parent, text, depth = 0) {
   if (!text) return;
   if (depth > 3) {
@@ -455,14 +475,30 @@ function appendSegments(parent, text, depth = 0) {
   let cursor = 0;
   while (cursor < text.length) {
     let next = null;
+    let pendingReasoning = null;
     for (const tag of tags) {
       const openTag = `<${tag}>`;
       const closeTag = `</${tag}>`;
       const open = text.indexOf(openTag, cursor);
       if (open < 0) continue;
       const close = text.indexOf(closeTag, open + openTag.length);
-      if (close < 0) continue;
+      if (close < 0) {
+        if ((tag === "think" || tag === "latent") && (!pendingReasoning || open < pendingReasoning.open)) {
+          pendingReasoning = { tag, open, openTag };
+        }
+        continue;
+      }
       if (!next || open < next.open) next = { tag, open, close, openTag, closeTag };
+    }
+    if (pendingReasoning && (!next || pendingReasoning.open < next.open)) {
+      appendPlain(parent, text.slice(cursor, pendingReasoning.open));
+      appendThinkingDisclosure(
+        parent,
+        pendingReasoning.tag,
+        text.slice(pendingReasoning.open + pendingReasoning.openTag.length),
+        depth,
+      );
+      break;
     }
     if (!next) {
       appendPlain(parent, text.slice(cursor));
@@ -471,11 +507,8 @@ function appendSegments(parent, text, depth = 0) {
 
     appendPlain(parent, text.slice(cursor, next.open));
     const body = text.slice(next.open + next.openTag.length, next.close);
-    if (next.tag === "think") {
-      const reasoning = document.createElement("div");
-      reasoning.className = "reasoning-segment";
-      appendSegments(reasoning, body, depth + 1);
-      parent.append(reasoning);
+    if (next.tag === "think" || next.tag === "latent") {
+      appendThinkingDisclosure(parent, next.tag, body, depth);
     } else {
       const block = document.createElement("section");
       block.className = `hybrid-block ${next.tag}-block`;

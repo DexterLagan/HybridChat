@@ -515,6 +515,62 @@ textarea:focus-visible {
   font-style: italic;
 }
 
+.reasoning-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.reasoning-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.reasoning-disclosure > summary::before {
+  display: inline-block;
+  flex: 0 0 8px;
+  width: 8px;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  color: currentColor;
+  content: "▸";
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.reasoning-disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.reasoning-disclosure > summary:focus-visible {
+  outline: 1px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.think-disclosure {
+  margin: 4px 0 8px;
+}
+
+.think-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.think-disclosure .reasoning-segment {
+  margin: 4px 0 8px;
+}
+
+.latent-block:not([open]) > .hybrid-block-label {
+  border-bottom-color: transparent;
+}
+
 .search-block {
   border-color: #51452f;
   background: #1b1915;
