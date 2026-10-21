@@ -51,7 +51,8 @@ const TEXT_SCALE_STORAGE_KEY = "hybridchat-text-scale";
 const MIN_TEXT_SCALE = 0.8;
 const MAX_TEXT_SCALE = 1.6;
 const TEXT_SCALE_STEP = 0.1;
-const traceDisclosureState = new Map();
+const disclosureState = new Map();
+const disclosureTags = new Set(["think", "latent", "search", "result"]);
 let conversationRenderPending = false;
 
 function normalizeTextScale(value) {
@@ -467,7 +468,7 @@ function cleanFinalAnswer(text, hideUnclosed = false) {
     if (end >= opening.length) {
       const suffix = answer.slice(end + closing.length).trim();
       if (!suffix || /^[.!?]$/.test(suffix)) {
-        answer = answer.slice(opening.length, end).trim() + suffix;
+        answer = answer.slice(opening.length, end).trim();
       }
     } else if (hideUnclosed) {
       answer = answer.slice(opening.length);
@@ -476,33 +477,34 @@ function cleanFinalAnswer(text, hideUnclosed = false) {
   return answer.trim();
 }
 
-function appendThinkingDisclosure(parent, tag, body, depth, traceContext) {
+function appendDisclosure(parent, tag, body, depth, traceContext) {
+  const thinking = tag === "think";
   const latent = tag === "latent";
   const disclosure = document.createElement("details");
-  disclosure.className = latent
-    ? "hybrid-block latent-block reasoning-disclosure"
-    : "reasoning-disclosure think-disclosure";
+  disclosure.className = thinking ? "reasoning-disclosure think-disclosure" : `hybrid-block ${tag}-block reasoning-disclosure`;
   if (traceContext) {
     const traceIndex = traceContext.counts[tag] || 0;
     traceContext.counts[tag] = traceIndex + 1;
     const traceKey = `${traceContext.messageId}:${tag}:${traceIndex}`;
     disclosure.dataset.traceKey = traceKey;
-    disclosure.open = traceDisclosureState.get(traceKey) === true;
+    disclosure.open = disclosureState.get(traceKey) === true;
     disclosure.addEventListener("toggle", () => {
       if (!disclosure.isConnected) return;
-      if (disclosure.open) traceDisclosureState.set(traceKey, true);
-      else traceDisclosureState.delete(traceKey);
+      if (disclosure.open) disclosureState.set(traceKey, true);
+      else disclosureState.delete(traceKey);
     });
   }
 
   const summary = document.createElement("summary");
-  summary.className = latent ? "hybrid-block-label" : "reasoning-summary";
-  summary.textContent = latent ? "latent thought" : "thinking";
+  summary.className = thinking ? "reasoning-summary" : "hybrid-block-label";
+  summary.textContent = thinking ? "thinking" : latent ? "latent thought" : tag;
 
   const content = document.createElement("div");
-  content.className = latent ? "hybrid-block-body latent-thought-body" : "reasoning-segment";
-  if (latent) content.textContent = body;
-  else appendSegments(content, body, depth + 1, traceContext);
+  content.className = thinking
+    ? "reasoning-segment"
+    : `hybrid-block-body${latent ? " latent-thought-body" : ""}`;
+  if (thinking) appendSegments(content, body, depth + 1, traceContext);
+  else content.textContent = body;
 
   disclosure.append(summary, content);
   parent.append(disclosure);
@@ -549,8 +551,8 @@ function appendSegments(parent, text, depth = 0, traceContext = null) {
     if (pendingTag && (!next || pendingTag.open < next.open)) {
       appendPlain(parent, text.slice(cursor, pendingTag.open));
       const body = text.slice(pendingTag.open + pendingTag.openTag.length);
-      if (pendingTag.tag === "think" || pendingTag.tag === "latent") {
-        appendThinkingDisclosure(parent, pendingTag.tag, body, depth, traceContext);
+      if (disclosureTags.has(pendingTag.tag)) {
+        appendDisclosure(parent, pendingTag.tag, body, depth, traceContext);
       } else {
         appendHybridBlock(parent, pendingTag.tag, body, true);
       }
@@ -563,8 +565,8 @@ function appendSegments(parent, text, depth = 0, traceContext = null) {
 
     appendPlain(parent, text.slice(cursor, next.open));
     const body = text.slice(next.open + next.openTag.length, next.close);
-    if (next.tag === "think" || next.tag === "latent") {
-      appendThinkingDisclosure(parent, next.tag, body, depth, traceContext);
+    if (disclosureTags.has(next.tag)) {
+      appendDisclosure(parent, next.tag, body, depth, traceContext);
     } else {
       appendHybridBlock(parent, next.tag, body);
     }
@@ -742,8 +744,8 @@ function renderConversation() {
       } else if (node.renderSignature !== signature) {
         // Capture the actual state even if the browser's toggle event is pending.
         for (const disclosure of node.querySelectorAll("details[data-trace-key]")) {
-          if (disclosure.open) traceDisclosureState.set(disclosure.dataset.traceKey, true);
-          else traceDisclosureState.delete(disclosure.dataset.traceKey);
+          if (disclosure.open) disclosureState.set(disclosure.dataset.traceKey, true);
+          else disclosureState.delete(disclosure.dataset.traceKey);
         }
         syncMessageNode(node, renderMessage(message));
       }

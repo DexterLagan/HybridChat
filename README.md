@@ -83,7 +83,7 @@ Example OpenCode provider configuration (replace the URL with the one shown by H
 }
 ```
 
-Only the model loaded in HybridChat can serve requests. The managed engine streams decoded text as it is generated; HybridChat keeps thinking and latent traces collapsed by default, and their disclosure arrows stay usable during generation. Stopping in HybridChat stops display and closes the client stream; it does not cancel an inference already running in the service.
+Only the model loaded in HybridChat can serve requests. The managed engine streams decoded text as it is generated; thinking, latent traces, search queries, and search results are collapsed by default, and their disclosure arrows stay usable during generation. Stopping in HybridChat stops display and closes the client stream; it does not cancel an inference already running in the service.
 
 ## Search tool
 

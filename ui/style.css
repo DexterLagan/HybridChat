@@ -561,7 +561,7 @@ textarea:focus-visible {
   margin: 4px 0 8px;
 }
 
-.latent-block:not([open]) > .hybrid-block-label {
+.reasoning-disclosure:not([open]) > .hybrid-block-label {
   border-bottom-color: transparent;
 }
 
