@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import gc
+from html.parser import HTMLParser
 import sys
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -14,6 +17,93 @@ from mlx_lm.sample_utils import make_sampler
 
 from hybrid_agent import SYSTEM_PROMPT, ToolExecutor, build_tool_executor, extract_answer
 from hybrid_agent.tools import PythonTool
+
+
+class _DuckDuckGoResultsParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.results: list[dict[str, str]] = []
+        self.capture_item: dict[str, str] | None = None
+        self.capture_key: str | None = None
+        self.capture_tag: str | None = None
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
+        if tag == "a" and "result__a" in classes:
+            url = attributes.get("href") or ""
+            parsed = urlparse(url)
+            if parsed.path.startswith("/l/"):
+                url = parse_qs(parsed.query).get("uddg", [url])[0]
+            self.capture_item = {"title": "", "url": url, "snippet": ""}
+            self.results.append(self.capture_item)
+            self.capture_key = "title"
+            self.capture_tag = tag
+        elif "result__snippet" in classes and self.results:
+            self.capture_item = self.results[-1]
+            self.capture_key = "snippet"
+            self.capture_tag = tag
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == self.capture_tag:
+            self.capture_item = None
+            self.capture_key = None
+            self.capture_tag = None
+
+    def handle_data(self, data: str) -> None:
+        if self.capture_item is not None and self.capture_key is not None:
+            self.capture_item[self.capture_key] += data
+
+
+class DuckDuckGoSearchTool:
+    """No-key web search fallback; Tavily is preferred when configured."""
+
+    name = "duckduckgo_search"
+    trigger_tag = "search"
+
+    def __init__(self, max_results: int = 5, result_length: int = 900, timeout: int = 15):
+        self.max_results = max_results
+        self.result_length = result_length
+        self.timeout = timeout
+
+    def execute(self, query: str, **kwargs) -> str:
+        query = query.strip()
+        if not query:
+            return "Empty search query."
+
+        url = "https://html.duckduckgo.com/html/?" + urlencode({"q": query})
+        request = Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                page = response.read().decode("utf-8", errors="replace")
+        except Exception as error:
+            return f"Search failed: {error}"
+
+        parser = _DuckDuckGoResultsParser()
+        parser.feed(page)
+        formatted = []
+        for index, result in enumerate(parser.results[: self.max_results], start=1):
+            title = " ".join(result["title"].split())
+            result_url = result["url"].strip()
+            snippet = " ".join(result["snippet"].split())[: self.result_length]
+            if not title and not snippet:
+                continue
+            lines = [f"Page {index}: {title or result_url}"]
+            if result_url:
+                lines.append(f"URL: {result_url}")
+            if snippet:
+                lines.append(snippet)
+            formatted.append("\n".join(lines))
+        return "\n\n".join(formatted) if formatted else "No search results found."
 
 
 def _mlx_array(tensor: torch.Tensor) -> mx.array:
@@ -59,6 +149,8 @@ class MLXHybridAgent:
         self.record_latent_readout = record_latent_readout
         self.readout_bank = self._make_readout_bank() if record_latent_readout else None
         self.tools = build_tool_executor(require_search=False)
+        if "search" not in self.tools.tools:
+            self.tools.register_tool(DuckDuckGoSearchTool())
         if "python" in self.tools.tools:
             self.tools.register_tool(PythonTool(
                 python_path=sys.executable,
@@ -140,7 +232,7 @@ class MLXHybridAgent:
             rendered += f"<latent>{text}</latent>" + part
         return rendered
 
-    def generate(self, question: str, params: dict | None = None) -> dict:
+    def generate(self, question: str, params: dict | None = None, on_delta=None) -> dict:
         params = params or {}
         max_steps = int(params.get("max_tokens", params.get("max_response_tokens", 4096)))
         max_latent_steps = int(params.get("max_latent_steps", 200))
@@ -194,23 +286,30 @@ class MLXHybridAgent:
                 )
                 if should_exit:
                     close_id = self.anchor_ids["</latent>"]
+                    pseudo_text = "".join(self.tokenizer.decode([token]) for token in open_span)
                     generated_ids.append(close_id)
                     full_decoded = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
-                    output += full_decoded[decoded_len:]
+                    delta = full_decoded[decoded_len:]
+                    output += delta
                     decoded_len = len(full_decoded)
                     hidden, logits = self._forward_ids([close_id], cache)
                     spans.append({
                         "steps": latent_steps_in_span,
                         "exit": "max_steps" if latent_steps_in_span >= max_latent_steps else "anchor",
-                        "pseudo_text": "".join(self.tokenizer.decode([token]) for token in open_span),
+                        "pseudo_text": pseudo_text,
                     })
+                    if on_delta and delta:
+                        on_delta(delta)
                     open_span = []
                     latent_mode = False
                     latent_steps_in_span = 0
                     continue
 
                 if self.record_latent_readout:
-                    open_span.append(self._nearest_token(link_input[0, 0]))
+                    readout_token = self._nearest_token(link_input[0, 0])
+                    open_span.append(readout_token)
+                    if on_delta:
+                        on_delta(self.tokenizer.decode([readout_token]))
                 hidden, logits = self._forward_embeddings(link_input, cache)
                 latent_steps_total += 1
                 continue
@@ -219,8 +318,11 @@ class MLXHybridAgent:
             token_id = self._sample(logits, sampler, in_think)
             generated_ids.append(token_id)
             full_decoded = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
-            output += full_decoded[decoded_len:]
+            delta = full_decoded[decoded_len:]
+            output += delta
             decoded_len = len(full_decoded)
+            if on_delta and delta:
+                on_delta(delta)
 
             if token_id in self.eos_ids:
                 end_reason = "eos"
@@ -259,6 +361,8 @@ class MLXHybridAgent:
                     result = f"The {tag} tool is unavailable: {error}"
                 observation = f"<result>{result}</result>"
                 output += observation
+                if on_delta:
+                    on_delta(observation)
                 result_ids = [int(token) for token in self.tokenizer.encode(observation, add_special_tokens=False)]
                 if result_ids:
                     hidden, logits = self._forward_ids(result_ids, cache)
@@ -268,7 +372,21 @@ class MLXHybridAgent:
             if end_reason == "tool_cap":
                 break
 
-        if open_span:
+        if latent_mode:
+            if open_span:
+                spans.append({
+                    "steps": len(open_span),
+                    "exit": end_reason,
+                    "pseudo_text": "".join(self.tokenizer.decode([token]) for token in open_span),
+                })
+            close_id = self.anchor_ids["</latent>"]
+            generated_ids.append(close_id)
+            full_decoded = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
+            delta = full_decoded[decoded_len:]
+            output += delta
+            if on_delta and delta:
+                on_delta(delta)
+        elif open_span:
             spans.append({
                 "steps": len(open_span),
                 "exit": end_reason,

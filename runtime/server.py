@@ -86,13 +86,13 @@ class ModelManager:
         self.model_id = None
         self.loaded_at = None
 
-    def generate(self, body: dict) -> dict[str, Any]:
+    def generate(self, body: dict, on_delta=None) -> dict[str, Any]:
         messages = body.get("messages") or []
         question = question_from_messages(messages)
         with self.lock:
             if self.engine is None:
                 raise RuntimeError("No model is loaded. Select a model and press Load.")
-            return self.engine.generate(question, body)
+            return self.engine.generate(question, body, on_delta=on_delta)
 
 
 def build_openai_response(model_id: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -216,23 +216,42 @@ def create_app(manager: ModelManager) -> FastAPI:
         if not status["loaded"]:
             raise HTTPException(status_code=409, detail="Load a HybridAgent model before chatting")
         model_id = status["model"]
-        try:
-            result = await manager.run_mlx(manager.generate, request)
-        except Exception as error:
-            logger.exception("generation failed")
-            raise HTTPException(status_code=500, detail=f"generation failed: {error}") from error
-
-        response = build_openai_response(model_id, result)
         if not request.get("stream"):
+            try:
+                result = await manager.run_mlx(manager.generate, request)
+            except Exception as error:
+                logger.exception("generation failed")
+                raise HTTPException(status_code=500, detail=f"generation failed: {error}") from error
+            response = build_openai_response(model_id, result)
             return JSONResponse(response)
 
-        content = response["choices"][0]["message"]["content"]
-        usage = response["usage"]
-        meta = response["hybrid"]
-        response_id = response["id"]
-        created = response["created"]
+        response_id = f"chatcmpl-hybrid-{uuid.uuid4().hex[:12]}"
+        created = int(time.time())
 
-        def stream_response():
+        async def stream_response():
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+            client_connected = threading.Event()
+            client_connected.set()
+
+            def on_delta(content: str) -> None:
+                if not content or not client_connected.is_set():
+                    return
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("delta", content))
+                except RuntimeError:
+                    client_connected.clear()
+
+            async def generate():
+                try:
+                    result = await manager.run_mlx(manager.generate, request, on_delta)
+                except Exception as error:
+                    logger.exception("generation failed")
+                    queue.put_nowait(("error", str(error)))
+                else:
+                    queue.put_nowait(("complete", result))
+
+            generation = asyncio.create_task(generate())
             yield event_json({
                 "id": response_id,
                 "object": "chat.completion.chunk",
@@ -240,33 +259,45 @@ def create_app(manager: ModelManager) -> FastAPI:
                 "model": model_id,
                 "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
             })
-            for offset in range(0, len(content), 160):
-                piece = content[offset : offset + 160]
-                yield event_json({
-                    "id": response_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model_id,
-                    "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}],
-                })
-            yield event_json({
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model_id,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                "usage": usage,
-            })
-            yield event_json({
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model_id,
-                "choices": [],
-                "hybrid": meta,
-                "usage": usage,
-            })
-            yield "data: [DONE]\n\n"
+
+            try:
+                while True:
+                    kind, value = await queue.get()
+                    if kind == "delta":
+                        yield event_json({
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model_id,
+                            "choices": [{"index": 0, "delta": {"content": value}, "finish_reason": None}],
+                        })
+                    elif kind == "error":
+                        yield event_json({"error": {"message": f"generation failed: {value}", "type": "server_error"}})
+                        yield "data: [DONE]\n\n"
+                        break
+                    else:
+                        response = build_openai_response(model_id, value)
+                        yield event_json({
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model_id,
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                            "usage": response["usage"],
+                        })
+                        yield event_json({
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model_id,
+                            "choices": [],
+                            "hybrid": response["hybrid"],
+                            "usage": response["usage"],
+                        })
+                        yield "data: [DONE]\n\n"
+                        break
+            finally:
+                client_connected.clear()
 
         return StreamingResponse(stream_response(), media_type="text/event-stream")
 

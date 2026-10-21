@@ -52,6 +52,10 @@ fn process_sse_frame(app: &AppHandle, session_id: &str, frame: &[u8]) -> bool {
             continue;
         };
 
+        if let Some(error) = event.pointer("/error/message").and_then(Value::as_str) {
+            emit_chat_event(app, session_id, "error", json!({ "error": error }));
+        }
+
         if let Some(content) = event
             .pointer("/choices/0/delta/content")
             .and_then(Value::as_str)

@@ -49,6 +49,8 @@ const TEXT_SCALE_STORAGE_KEY = "hybridchat-text-scale";
 const MIN_TEXT_SCALE = 0.8;
 const MAX_TEXT_SCALE = 1.6;
 const TEXT_SCALE_STEP = 0.1;
+const traceDisclosureState = new Map();
+let conversationRenderPending = false;
 
 function normalizeTextScale(value) {
   const scale = Number(value);
@@ -409,7 +411,7 @@ function appendPlain(parent, text) {
   parent.append(node);
 }
 
-function stripBoxedDelimiters(text) {
+function stripBoxedDelimiters(text, hideUnclosed = false) {
   const marker = "\\boxed{";
   let result = "";
   let cursor = 0;
@@ -437,19 +439,32 @@ function stripBoxedDelimiters(text) {
       }
     }
 
-    if (closing < 0) return result + text.slice(start);
-    result += stripBoxedDelimiters(text.slice(contentStart, closing));
+    if (closing < 0) {
+      return result + text.slice(hideUnclosed ? contentStart : start);
+    }
+    result += stripBoxedDelimiters(text.slice(contentStart, closing), hideUnclosed);
     cursor = closing + 1;
   }
   return result + text.slice(cursor);
 }
 
-function appendThinkingDisclosure(parent, tag, body, depth) {
+function appendThinkingDisclosure(parent, tag, body, depth, traceContext) {
   const latent = tag === "latent";
   const disclosure = document.createElement("details");
   disclosure.className = latent
     ? "hybrid-block latent-block reasoning-disclosure"
     : "reasoning-disclosure think-disclosure";
+  if (traceContext) {
+    const traceIndex = traceContext.counts[tag] || 0;
+    traceContext.counts[tag] = traceIndex + 1;
+    const traceKey = `${traceContext.messageId}:${tag}:${traceIndex}`;
+    disclosure.dataset.traceKey = traceKey;
+    disclosure.open = traceDisclosureState.get(traceKey) === true;
+    disclosure.addEventListener("toggle", () => {
+      if (disclosure.open) traceDisclosureState.set(traceKey, true);
+      else traceDisclosureState.delete(traceKey);
+    });
+  }
 
   const summary = document.createElement("summary");
   summary.className = latent ? "hybrid-block-label" : "reasoning-summary";
@@ -458,13 +473,27 @@ function appendThinkingDisclosure(parent, tag, body, depth) {
   const content = document.createElement("div");
   content.className = latent ? "hybrid-block-body latent-thought-body" : "reasoning-segment";
   if (latent) content.textContent = body;
-  else appendSegments(content, body, depth + 1);
+  else appendSegments(content, body, depth + 1, traceContext);
 
   disclosure.append(summary, content);
   parent.append(disclosure);
 }
 
-function appendSegments(parent, text, depth = 0) {
+function appendHybridBlock(parent, tag, body, partial = false) {
+  const block = document.createElement("section");
+  block.className = `hybrid-block ${tag}-block`;
+  const label = document.createElement("div");
+  label.className = "hybrid-block-label";
+  label.textContent = tag;
+  const content = document.createElement("div");
+  content.className = "hybrid-block-body";
+  if (tag === "answer") content.textContent = stripBoxedDelimiters(body, partial);
+  else content.textContent = body;
+  block.append(label, content);
+  parent.append(block);
+}
+
+function appendSegments(parent, text, depth = 0, traceContext = null) {
   if (!text) return;
   if (depth > 3) {
     appendPlain(parent, text);
@@ -475,7 +504,7 @@ function appendSegments(parent, text, depth = 0) {
   let cursor = 0;
   while (cursor < text.length) {
     let next = null;
-    let pendingReasoning = null;
+    let pendingTag = null;
     for (const tag of tags) {
       const openTag = `<${tag}>`;
       const closeTag = `</${tag}>`;
@@ -483,21 +512,19 @@ function appendSegments(parent, text, depth = 0) {
       if (open < 0) continue;
       const close = text.indexOf(closeTag, open + openTag.length);
       if (close < 0) {
-        if ((tag === "think" || tag === "latent") && (!pendingReasoning || open < pendingReasoning.open)) {
-          pendingReasoning = { tag, open, openTag };
-        }
+        if (!pendingTag || open < pendingTag.open) pendingTag = { tag, open, openTag };
         continue;
       }
       if (!next || open < next.open) next = { tag, open, close, openTag, closeTag };
     }
-    if (pendingReasoning && (!next || pendingReasoning.open < next.open)) {
-      appendPlain(parent, text.slice(cursor, pendingReasoning.open));
-      appendThinkingDisclosure(
-        parent,
-        pendingReasoning.tag,
-        text.slice(pendingReasoning.open + pendingReasoning.openTag.length),
-        depth,
-      );
+    if (pendingTag && (!next || pendingTag.open < next.open)) {
+      appendPlain(parent, text.slice(cursor, pendingTag.open));
+      const body = text.slice(pendingTag.open + pendingTag.openTag.length);
+      if (pendingTag.tag === "think" || pendingTag.tag === "latent") {
+        appendThinkingDisclosure(parent, pendingTag.tag, body, depth, traceContext);
+      } else {
+        appendHybridBlock(parent, pendingTag.tag, body, true);
+      }
       break;
     }
     if (!next) {
@@ -508,19 +535,9 @@ function appendSegments(parent, text, depth = 0) {
     appendPlain(parent, text.slice(cursor, next.open));
     const body = text.slice(next.open + next.openTag.length, next.close);
     if (next.tag === "think" || next.tag === "latent") {
-      appendThinkingDisclosure(parent, next.tag, body, depth);
+      appendThinkingDisclosure(parent, next.tag, body, depth, traceContext);
     } else {
-      const block = document.createElement("section");
-      block.className = `hybrid-block ${next.tag}-block`;
-      const label = document.createElement("div");
-      label.className = "hybrid-block-label";
-      label.textContent = next.tag === "latent" ? "latent thought" : next.tag;
-      const content = document.createElement("div");
-      content.className = "hybrid-block-body";
-      if (next.tag === "answer") content.textContent = stripBoxedDelimiters(body);
-      else content.textContent = body;
-      block.append(label, content);
-      parent.append(block);
+      appendHybridBlock(parent, next.tag, body);
     }
     cursor = next.close + next.closeTag.length;
   }
@@ -577,7 +594,8 @@ function renderMessage(message) {
     const content = document.createElement("div");
     content.className = "message-text";
     if (message.role === "assistant") {
-      appendSegments(content, message.text.replace(/<\|(?:endoftext|im_end|im_start)\|>/g, ""));
+      const traceContext = { messageId: message.id, counts: { think: 0, latent: 0 } };
+      appendSegments(content, message.text.replace(/<\|(?:endoftext|im_end|im_start)\|>/g, ""), 0, traceContext);
     }
     else appendPlain(content, message.text);
     if (message.streaming) {
@@ -767,6 +785,15 @@ async function stopActiveResponse() {
   }
 }
 
+function scheduleConversationRender() {
+  if (conversationRenderPending) return;
+  conversationRenderPending = true;
+  requestAnimationFrame(() => {
+    conversationRenderPending = false;
+    renderConversation();
+  });
+}
+
 function handleChatEvent(payload) {
   if (!payload || !payload.sessionId) return;
   const session = sessions.find((candidate) => candidate.id === payload.sessionId);
@@ -790,7 +817,10 @@ function handleChatEvent(payload) {
 
   session.updatedAt = Date.now();
   if (payload.kind === "done" || payload.kind === "stopped" || payload.kind === "error") scheduleSave();
-  if (session.id === activeSessionId) renderConversation();
+  if (session.id === activeSessionId) {
+    if (payload.kind === "delta") scheduleConversationRender();
+    else renderConversation();
+  }
   else renderTabs();
 }
 

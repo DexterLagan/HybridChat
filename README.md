@@ -77,11 +77,11 @@ Example OpenCode provider configuration (replace the URL with the one shown by H
 }
 ```
 
-Only the model loaded in HybridChat can serve requests. The current HybridAgent Python server computes a complete trajectory before sending its SSE response, so clients see a thinking interval followed by the rendered response stream. Stopping in HybridChat stops display; it cannot cancel an inference already running in the service.
+Only the model loaded in HybridChat can serve requests. The managed engine streams decoded text as it is generated; HybridChat keeps thinking and latent traces collapsed by default, and their disclosure arrows stay usable during generation. Stopping in HybridChat stops display and closes the client stream; it does not cancel an inference already running in the service.
 
 ## Search tool
 
-The Python tool is available by default. Search is optional and requires a Tavily API key in the environment when HybridChat launches (`TAVILY_API_KEY`). Without one, a model-requested search returns an unavailable-tool observation and generation continues. The Python tool runs generated code as the current user in a subprocess; it is not a full operating-system sandbox.
+The Python tool is available by default. Web search works without a key through DuckDuckGo; if `TAVILY_API_KEY` is set when HybridChat launches, the engine uses Tavily instead. Search requires an internet connection and returns result titles, URLs, and snippets. The Python tool runs generated code as the current user in a subprocess; it is not a full operating-system sandbox.
 
 ## Technology
 
