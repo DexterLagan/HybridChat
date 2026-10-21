@@ -87,7 +87,7 @@ Only the model loaded in HybridChat can serve requests. The managed engine strea
 
 ## Search tool
 
-The Python tool is available by default. Web search works without a key through DuckDuckGo; if `TAVILY_API_KEY` is set when HybridChat launches, the engine uses Tavily instead. Search requires an internet connection and returns result titles, URLs, and snippets. The Python tool runs generated code as the current user in a subprocess; it is not a full operating-system sandbox.
+The Python tool is available by default. HybridChat uses web search selectively for explicit source requests, current or recent information, or questions that need external verification; simple arithmetic, stable common facts, and conversational questions are answered directly. Search works without a key through DuckDuckGo; if `TAVILY_API_KEY` is set when HybridChat launches, the engine uses Tavily instead. Search requires an internet connection and returns result titles, URLs, and snippets. The Python tool runs generated code as the current user in a subprocess; it is not a full operating-system sandbox.
 
 ## Technology
 

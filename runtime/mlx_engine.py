@@ -18,6 +18,15 @@ from mlx_lm.sample_utils import make_sampler
 from hybrid_agent import SYSTEM_PROMPT, ToolExecutor, build_tool_executor, extract_answer
 from hybrid_agent.tools import PythonTool
 
+TOOL_USE_GUIDANCE = (
+    "Search policy for HybridChat (this takes precedence over the general search recommendation "
+    "above): do not use web search automatically. Search only when the user explicitly asks for "
+    "web search or sources, asks about current or recent information, or an accurate answer "
+    "depends on an external source you cannot confidently provide from existing knowledge. Answer "
+    "simple arithmetic, common stable facts, and conversational questions directly. Respect an "
+    "explicit request not to search."
+)
+
 
 class _DuckDuckGoResultsParser(HTMLParser):
     def __init__(self):
@@ -124,9 +133,10 @@ def build_system_prompt(messages: list[dict]) -> str:
             )
         if isinstance(content, str) and content.strip():
             instructions.append(content.strip())
-    if not instructions:
-        return SYSTEM_PROMPT
-    return SYSTEM_PROMPT + "\n\nAdditional user instructions:\n" + "\n\n".join(instructions)
+    prompt = SYSTEM_PROMPT + "\n\nHybridChat tool-use guidance:\n" + TOOL_USE_GUIDANCE
+    if instructions:
+        prompt += "\n\nAdditional user instructions:\n" + "\n\n".join(instructions)
+    return prompt
 
 
 class MLXHybridLink:
