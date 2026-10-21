@@ -153,15 +153,24 @@ pub fn models_directory(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-fn development_models_directory() -> PathBuf {
+fn development_models_directory() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("HYBRIDCHAT_SOURCE_MODELS_DIR") {
-        return PathBuf::from(path);
+        return Some(PathBuf::from(path));
     }
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest
-        .join("../../models")
-        .canonicalize()
-        .unwrap_or_else(|_| manifest.join("../../models"))
+    #[cfg(debug_assertions)]
+    {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        return Some(
+            manifest
+                .join("../../models")
+                .canonicalize()
+                .unwrap_or_else(|_| manifest.join("../../models")),
+        );
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
 }
 
 fn huggingface_cached_source(model: &RemoteModel) -> Option<PathBuf> {
@@ -211,9 +220,11 @@ pub fn installed_model_directory(
         return Ok(Some(app_data_model));
     }
     if std::env::var_os("HYBRIDCHAT_DISABLE_DEV_QUANT_MODELS").is_none() {
-        let development_model = development_models_directory().join(format!("{model_id}-MLX-6bit"));
-        if is_quantized_model(&development_model) {
-            return Ok(Some(development_model));
+        if let Some(development_models) = development_models_directory() {
+            let development_model = development_models.join(format!("{model_id}-MLX-6bit"));
+            if is_quantized_model(&development_model) {
+                return Ok(Some(development_model));
+            }
         }
     }
     Ok(None)
@@ -229,13 +240,15 @@ pub fn source_model_directory(app: &AppHandle, model_id: &str) -> Result<Option<
     {
         return Ok(Some(app_source));
     }
-    let development_source = development_models_directory().join(model.id);
-    if model
-        .files
-        .iter()
-        .all(|file| file_is_complete(&development_source, file))
-    {
-        return Ok(Some(development_source));
+    if let Some(development_models) = development_models_directory() {
+        let development_source = development_models.join(model.id);
+        if model
+            .files
+            .iter()
+            .all(|file| file_is_complete(&development_source, file))
+        {
+            return Ok(Some(development_source));
+        }
     }
     if let Some(cached_source) = huggingface_cached_source(model) {
         return Ok(Some(cached_source));

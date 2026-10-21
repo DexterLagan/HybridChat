@@ -237,23 +237,26 @@ pub(crate) fn prepare_engine(app: &AppHandle) -> Result<RuntimeEnvironment, Stri
     let scripts_dir = app_runtime_dir(app)?;
     write_runtime_sources(&scripts_dir)?;
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let dev_root = manifest_dir
-        .join("../..")
-        .canonicalize()
-        .unwrap_or(manifest_dir.clone());
-    let dev_python = dev_root.join(".venv/bin/python");
-    let force_managed_runtime = std::env::var_os("HYBRIDCHAT_FORCE_MANAGED_RUNTIME").is_some();
-    if !force_managed_runtime
-        && dev_python.is_file()
-        && dev_root.join("hybrid_agent/__init__.py").is_file()
-        && compatible_python(&dev_python, Some(&dev_root))
+    #[cfg(debug_assertions)]
     {
-        return Ok(RuntimeEnvironment {
-            python: dev_python,
-            scripts_dir,
-            engine_source: dev_root,
-        });
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dev_root = manifest_dir
+            .join("../..")
+            .canonicalize()
+            .unwrap_or(manifest_dir);
+        let dev_python = dev_root.join(".venv/bin/python");
+        let force_managed_runtime = std::env::var_os("HYBRIDCHAT_FORCE_MANAGED_RUNTIME").is_some();
+        if !force_managed_runtime
+            && dev_python.is_file()
+            && dev_root.join("hybrid_agent/__init__.py").is_file()
+            && compatible_python(&dev_python, Some(&dev_root))
+        {
+            return Ok(RuntimeEnvironment {
+                python: dev_python,
+                scripts_dir,
+                engine_source: dev_root,
+            });
+        }
     }
 
     let venv_dir = scripts_dir.join("venv");
