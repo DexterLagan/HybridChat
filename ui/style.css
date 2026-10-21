@@ -392,12 +392,6 @@ textarea:focus-visible {
 .message {
   max-width: 860px;
   margin: 0 auto 26px;
-  animation: message-in 160ms ease-out;
-}
-
-@keyframes message-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .message-head {
@@ -815,6 +809,8 @@ textarea:focus-visible {
 
 .settings-panel {
   width: min(490px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
   padding: 21px;
   border: 1px solid #393d48;
   border-radius: 11px;
@@ -1048,6 +1044,19 @@ textarea:focus-visible {
 .settings-input:focus {
   border-color: #526d9b;
   outline: 0;
+}
+
+.system-prompt-field {
+  display: block;
+  margin-top: 17px;
+}
+
+.system-prompt-input {
+  height: auto;
+  min-height: 120px;
+  padding: 10px;
+  line-height: 1.6;
+  resize: vertical;
 }
 
 .field-row {

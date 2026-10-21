@@ -52,6 +52,12 @@ cargo tauri build --bundles app
 
 The bundle is written to `src-tauri/target/release/bundle/macos/HybridChat.app`. A local unsigned build can be opened from the build folder; distribution outside your machine requires normal macOS code signing/notarization.
 
+## System prompt
+
+In **settings**, edit **System prompt (additional instructions)** and choose **save settings**. These instructions are stored locally on this Mac and apply globally to all chat tabs and both models. Cancel discards unsaved edits; clearing the editor and saving restores the built-in prompt alone.
+
+On each Send, HybridChat includes the saved text as a system message in that request. The engine appends it to HybridAgent's built-in protocol prompt before applying the model's chat template and processing the conversation. This preserves the model's latent/tool format. Changes take effect on the next message, including in an existing chat, without reloading the model. They do not alter previous replies or a generation already in progress. External API clients supply their own system messages; they do not inherit the desktop Settings value.
+
 ## OpenAI-compatible API
 
 When the managed engine starts, HybridChat prefers `http://127.0.0.1:8100/v1`; if that port is occupied it chooses another local port. The active URL is shown under **settings** and can be copied. The local server binds only to loopback and exposes standard `/v1/models` and `/v1/chat/completions`, plus local load/unload management routes.

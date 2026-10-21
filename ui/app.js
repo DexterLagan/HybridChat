@@ -18,6 +18,7 @@ const elements = {
   settingsSave: document.querySelector("#settings-save"),
   temperature: document.querySelector("#temperature"),
   maxTokens: document.querySelector("#max-tokens"),
+  systemPrompt: document.querySelector("#system-prompt"),
   openaiUrl: document.querySelector("#openai-url"),
   copyOpenAIUrl: document.querySelector("#copy-openai-url"),
   setupModal: document.querySelector("#model-setup-modal"),
@@ -43,6 +44,7 @@ const elements = {
 const defaultSettings = {
   temperature: 0.6,
   maxTokens: "",
+  systemPrompt: "",
 };
 
 const TEXT_SCALE_STORAGE_KEY = "hybridchat-text-scale";
@@ -148,11 +150,13 @@ function loadSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem("hybridchat-settings") || "{}");
     settings = { ...defaultSettings, ...stored };
+    settings.systemPrompt = typeof settings.systemPrompt === "string" ? settings.systemPrompt : "";
   } catch {
     settings = { ...defaultSettings };
   }
   elements.temperature.value = settings.temperature;
   elements.maxTokens.value = settings.maxTokens;
+  elements.systemPrompt.value = settings.systemPrompt;
 }
 
 function saveSettings() {
@@ -161,6 +165,7 @@ function saveSettings() {
   settings = {
     temperature: Number.isFinite(temperature) ? Math.max(0, Math.min(2, temperature)) : defaultSettings.temperature,
     maxTokens: maxTokens && Number.isFinite(Number(maxTokens)) ? String(Math.max(1, Number(maxTokens))) : "",
+    systemPrompt: elements.systemPrompt.value,
   };
   localStorage.setItem("hybridchat-settings", JSON.stringify(settings));
   elements.temperature.value = settings.temperature;
@@ -448,6 +453,29 @@ function stripBoxedDelimiters(text, hideUnclosed = false) {
   return result + text.slice(cursor);
 }
 
+function cleanFinalAnswer(text, hideUnclosed = false) {
+  let answer = stripBoxedDelimiters(text, hideUnclosed).trimStart();
+  const preamble = "the final answer is";
+  const beginning = answer.trimStart().toLowerCase();
+  if (hideUnclosed && preamble.startsWith(beginning) && beginning.length < preamble.length) return "";
+  answer = answer.replace(/^the\s+final\s+answer\s+is\s*:?\s*/i, "");
+
+  const opening = "\\[";
+  const closing = "\\]";
+  if (answer.startsWith(opening)) {
+    const end = answer.lastIndexOf(closing);
+    if (end >= opening.length) {
+      const suffix = answer.slice(end + closing.length).trim();
+      if (!suffix || /^[.!?]$/.test(suffix)) {
+        answer = answer.slice(opening.length, end).trim() + suffix;
+      }
+    } else if (hideUnclosed) {
+      answer = answer.slice(opening.length);
+    }
+  }
+  return answer.trim();
+}
+
 function appendThinkingDisclosure(parent, tag, body, depth, traceContext) {
   const latent = tag === "latent";
   const disclosure = document.createElement("details");
@@ -461,6 +489,7 @@ function appendThinkingDisclosure(parent, tag, body, depth, traceContext) {
     disclosure.dataset.traceKey = traceKey;
     disclosure.open = traceDisclosureState.get(traceKey) === true;
     disclosure.addEventListener("toggle", () => {
+      if (!disclosure.isConnected) return;
       if (disclosure.open) traceDisclosureState.set(traceKey, true);
       else traceDisclosureState.delete(traceKey);
     });
@@ -487,7 +516,7 @@ function appendHybridBlock(parent, tag, body, partial = false) {
   label.textContent = tag;
   const content = document.createElement("div");
   content.className = "hybrid-block-body";
-  if (tag === "answer") content.textContent = stripBoxedDelimiters(body, partial);
+  if (tag === "answer") content.textContent = cleanFinalAnswer(body, partial);
   else content.textContent = body;
   block.append(label, content);
   parent.append(block);
@@ -573,6 +602,7 @@ function appendMeta(parent, meta) {
 function renderMessage(message) {
   const article = document.createElement("article");
   article.className = `message ${message.role}`;
+  article.dataset.messageId = message.id;
 
   const header = document.createElement("div");
   header.className = "message-head";
@@ -654,15 +684,74 @@ function renderWelcome(parent) {
   parent.append(welcome);
 }
 
+function syncMessageNode(current, next) {
+  if (current.nodeType !== next.nodeType
+      || current.nodeName !== next.nodeName
+      || (current.nodeType === Node.ELEMENT_NODE
+        && (current.className !== next.className
+          || current.dataset.traceKey !== next.dataset.traceKey))) {
+    current.replaceWith(next);
+    return;
+  }
+  if (current.nodeType === Node.TEXT_NODE) {
+    if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+    return;
+  }
+
+  // Keep native disclosure state and focused controls on the existing nodes.
+  for (const attribute of [...current.attributes]) {
+    if (current.nodeName === "DETAILS" && attribute.name === "open") continue;
+    if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+  }
+  for (const attribute of [...next.attributes]) {
+    if (current.nodeName === "DETAILS" && attribute.name === "open") continue;
+    if (current.getAttribute(attribute.name) !== attribute.value) {
+      current.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  const previousChildren = [...current.childNodes];
+  const nextChildren = [...next.childNodes];
+  for (let index = 0; index < Math.max(previousChildren.length, nextChildren.length); index += 1) {
+    if (!nextChildren[index]) previousChildren[index].remove();
+    else if (!previousChildren[index]) current.append(nextChildren[index]);
+    else syncMessageNode(previousChildren[index], nextChildren[index]);
+  }
+}
+
 function renderConversation() {
   const session = activeSession();
   const container = elements.conversation;
   const pinToBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 48;
-  container.replaceChildren();
+  if (container.dataset.sessionId !== session?.id) {
+    container.replaceChildren();
+    container.dataset.sessionId = session?.id || "";
+  }
   if (!session || session.messages.length === 0) {
-    renderWelcome(container);
+    if (!container.querySelector(".welcome")) {
+      container.replaceChildren();
+      renderWelcome(container);
+    }
   } else {
-    for (const message of session.messages) container.append(renderMessage(message));
+    container.querySelector(".welcome")?.remove();
+    const existing = new Map([...container.children].map((node) => [node.dataset.messageId, node]));
+    for (const [index, message] of session.messages.entries()) {
+      let node = existing.get(message.id);
+      const signature = JSON.stringify(message);
+      if (!node) {
+        node = renderMessage(message);
+      } else if (node.renderSignature !== signature) {
+        // Capture the actual state even if the browser's toggle event is pending.
+        for (const disclosure of node.querySelectorAll("details[data-trace-key]")) {
+          if (disclosure.open) traceDisclosureState.set(disclosure.dataset.traceKey, true);
+          else traceDisclosureState.delete(disclosure.dataset.traceKey);
+        }
+        syncMessageNode(node, renderMessage(message));
+      }
+      node.renderSignature = signature;
+      if (container.children[index] !== node) container.insertBefore(node, container.children[index] || null);
+      existing.delete(message.id);
+    }
+    for (const node of existing.values()) node.remove();
   }
   if (pinToBottom) container.scrollTop = container.scrollHeight;
   renderStatus();
@@ -710,7 +799,7 @@ function compactAssistantAnswer(text) {
   const answers = [...text.matchAll(/<answer>([\s\S]*?)<\/answer>/g)];
   const answer = answers.at(-1)?.[1]?.trim();
   return answer
-    ? stripBoxedDelimiters(answer)
+    ? cleanFinalAnswer(answer)
     : text.replace(/<latent>[\s\S]*?<\/latent>/g, "").trim().slice(0, 1800);
 }
 
@@ -751,7 +840,10 @@ async function sendMessage() {
 
   const request = {
     model: selectedModelId,
-    messages: [{ role: "user", content: conversationQuestion(session, userMessage) }],
+    messages: [
+      ...(settings.systemPrompt.trim() ? [{ role: "system", content: settings.systemPrompt }] : []),
+      { role: "user", content: conversationQuestion(session, userMessage) },
+    ],
     stream: true,
     temperature: settings.temperature,
   };
@@ -1026,6 +1118,7 @@ function resizePrompt() {
 function openSettings() {
   elements.temperature.value = settings.temperature;
   elements.maxTokens.value = settings.maxTokens;
+  elements.systemPrompt.value = settings.systemPrompt;
   elements.openaiUrl.textContent = newestHealth?.baseUrl || "Load a model to start the local API";
   elements.settingsModal.classList.remove("hidden");
   elements.temperature.focus();

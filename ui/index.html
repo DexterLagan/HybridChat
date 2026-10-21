@@ -94,7 +94,12 @@
             <input id="max-tokens" class="settings-input" type="number" min="1" step="128" placeholder="4096" />
           </label>
         </div>
-        <p class="settings-note">HybridAgent’s latent reasoning, tool calls, and results are rendered inline. The engine produces a complete trajectory before sending its SSE response, so the app shows a thinking state while inference runs. Stop hides the response; it cannot interrupt an already-running generation.</p>
+        <label class="field-group system-prompt-field">
+          <span class="field-label">System prompt <span class="field-note">additional instructions</span></span>
+          <textarea id="system-prompt" class="settings-input system-prompt-input" rows="6" placeholder="For example: Answer concisely and include source URLs when searching." aria-describedby="system-prompt-help"></textarea>
+        </label>
+        <p id="system-prompt-help" class="settings-note">Saved on this Mac for all chats and both models. Appended to HybridAgent’s built-in system prompt for each new message after saving, including in existing chats. No model reload needed; current generations and past replies are unchanged. Leave blank to use only the built-in prompt.</p>
+        <p class="settings-note">Text and thinking traces stream as they are generated. Use the arrows to reveal thinking. Stop hides the response; it cannot interrupt an already-running generation.</p>
         <div class="settings-actions">
           <button id="settings-cancel" class="quiet-button">cancel</button>
           <button id="settings-save" class="send-button">save settings <span>↵</span></button>

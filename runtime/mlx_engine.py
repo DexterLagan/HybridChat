@@ -110,6 +110,25 @@ def _mlx_array(tensor: torch.Tensor) -> mx.array:
     return mx.array(tensor.detach().float().cpu().numpy()).astype(mx.bfloat16)
 
 
+def build_system_prompt(messages: list[dict]) -> str:
+    instructions = []
+    for message in messages:
+        if message.get("role") != "system":
+            continue
+        content = message.get("content", "")
+        if isinstance(content, list):
+            content = "\n".join(
+                str(part.get("text", ""))
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+        if isinstance(content, str) and content.strip():
+            instructions.append(content.strip())
+    if not instructions:
+        return SYSTEM_PROMPT
+    return SYSTEM_PROMPT + "\n\nAdditional user instructions:\n" + "\n\n".join(instructions)
+
+
 class MLXHybridLink:
     def __init__(self, adapter_path: Path, hidden_size: int):
         state = torch.load(adapter_path, map_location="cpu", weights_only=True)
@@ -245,7 +264,7 @@ class MLXHybridAgent:
 
         prompt = self.tokenizer.apply_chat_template(
             [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": build_system_prompt(params.get("messages") or [])},
                 {"role": "user", "content": question},
             ],
             tokenize=True,
