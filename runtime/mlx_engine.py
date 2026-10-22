@@ -18,16 +18,6 @@ from mlx_lm.sample_utils import make_sampler
 from hybrid_agent import SYSTEM_PROMPT, ToolExecutor, build_tool_executor, extract_answer
 from hybrid_agent.tools import PythonTool
 
-TOOL_USE_GUIDANCE = (
-    "Search policy for HybridChat (this takes precedence over the general search recommendation "
-    "above): do not use web search automatically. Search only when the user explicitly asks for "
-    "web search or sources, asks about current or recent information, or an accurate answer "
-    "depends on an external source you cannot confidently provide from existing knowledge. Answer "
-    "simple arithmetic, common stable facts, and conversational questions directly. Respect an "
-    "explicit request not to search."
-)
-
-
 class _DuckDuckGoResultsParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -119,7 +109,25 @@ def _mlx_array(tensor: torch.Tensor) -> mx.array:
     return mx.array(tensor.detach().float().cpu().numpy()).astype(mx.bfloat16)
 
 
-def build_system_prompt(messages: list[dict]) -> str:
+def _load_default_system_prompt() -> str:
+    prompt_path = Path(__file__).with_name("default_system_prompt.txt")
+    try:
+        prompt = prompt_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        prompt = SYSTEM_PROMPT + "\n\nHybridChat tool-use guidance:\n" + (
+            "Search selectively: only for explicitly requested sources, current or recent information, "
+            "or answers that need external verification. Answer simple arithmetic, stable common facts, "
+            "and conversational questions directly. Respect explicit requests not to search."
+        )
+    return prompt
+
+
+DEFAULT_SYSTEM_PROMPT = _load_default_system_prompt()
+
+
+def build_system_prompt(messages: list[dict], full_prompt: str | None = None) -> str:
+    if isinstance(full_prompt, str) and full_prompt.strip():
+        return full_prompt.strip()
     instructions = []
     for message in messages:
         if message.get("role") != "system":
@@ -133,7 +141,7 @@ def build_system_prompt(messages: list[dict]) -> str:
             )
         if isinstance(content, str) and content.strip():
             instructions.append(content.strip())
-    prompt = SYSTEM_PROMPT + "\n\nHybridChat tool-use guidance:\n" + TOOL_USE_GUIDANCE
+    prompt = DEFAULT_SYSTEM_PROMPT
     if instructions:
         prompt += "\n\nAdditional user instructions:\n" + "\n\n".join(instructions)
     return prompt
@@ -274,7 +282,9 @@ class MLXHybridAgent:
 
         prompt = self.tokenizer.apply_chat_template(
             [
-                {"role": "system", "content": build_system_prompt(params.get("messages") or [])},
+                {"role": "system", "content": build_system_prompt(
+                    params.get("messages") or [], params.get("hybridchat_system_prompt")
+                )},
                 {"role": "user", "content": question},
             ],
             tokenize=True,

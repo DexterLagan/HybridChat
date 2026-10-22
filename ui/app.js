@@ -46,6 +46,7 @@ const defaultSettings = {
   maxTokens: "",
   systemPrompt: "",
 };
+let defaultSystemPrompt = "";
 
 const TEXT_SCALE_STORAGE_KEY = "hybridchat-text-scale";
 const MIN_TEXT_SCALE = 0.8;
@@ -148,13 +149,25 @@ function scheduleSave() {
 }
 
 function loadSettings() {
+  let stored = {};
   try {
-    const stored = JSON.parse(localStorage.getItem("hybridchat-settings") || "{}");
+    stored = JSON.parse(localStorage.getItem("hybridchat-settings") || "{}");
     settings = { ...defaultSettings, ...stored };
-    settings.systemPrompt = typeof settings.systemPrompt === "string" ? settings.systemPrompt : "";
   } catch {
+    stored = {};
     settings = { ...defaultSettings };
   }
+  const savedPrompt = typeof stored.systemPrompt === "string" ? stored.systemPrompt : "";
+  if (stored.systemPromptMode === "full") {
+    settings.systemPrompt = savedPrompt.trim() ? savedPrompt : defaultSystemPrompt;
+  } else {
+    settings.systemPrompt = defaultSystemPrompt;
+    if (savedPrompt.trim()) {
+      settings.systemPrompt += `\n\nAdditional user instructions:\n${savedPrompt.trim()}`;
+    }
+  }
+  settings.systemPromptMode = "full";
+  localStorage.setItem("hybridchat-settings", JSON.stringify(settings));
   elements.temperature.value = settings.temperature;
   elements.maxTokens.value = settings.maxTokens;
   elements.systemPrompt.value = settings.systemPrompt;
@@ -166,11 +179,13 @@ function saveSettings() {
   settings = {
     temperature: Number.isFinite(temperature) ? Math.max(0, Math.min(2, temperature)) : defaultSettings.temperature,
     maxTokens: maxTokens && Number.isFinite(Number(maxTokens)) ? String(Math.max(1, Number(maxTokens))) : "",
-    systemPrompt: elements.systemPrompt.value,
+    systemPrompt: elements.systemPrompt.value.trim() ? elements.systemPrompt.value : defaultSystemPrompt,
+    systemPromptMode: "full",
   };
   localStorage.setItem("hybridchat-settings", JSON.stringify(settings));
   elements.temperature.value = settings.temperature;
   elements.maxTokens.value = settings.maxTokens;
+  elements.systemPrompt.value = settings.systemPrompt;
   elements.settingsModal.classList.add("hidden");
   renderStatus();
 }
@@ -842,10 +857,8 @@ async function sendMessage() {
 
   const request = {
     model: selectedModelId,
-    messages: [
-      ...(settings.systemPrompt.trim() ? [{ role: "system", content: settings.systemPrompt }] : []),
-      { role: "user", content: conversationQuestion(session, userMessage) },
-    ],
+    hybridchat_system_prompt: settings.systemPrompt,
+    messages: [{ role: "user", content: conversationQuestion(session, userMessage) }],
     stream: true,
     temperature: settings.temperature,
   };
@@ -1137,6 +1150,12 @@ async function initialize() {
     return;
   }
 
+  try {
+    const prompt = await invoke("default_system_prompt");
+    if (typeof prompt === "string") defaultSystemPrompt = prompt.trim();
+  } catch (error) {
+    console.error("Could not load the built-in system prompt", error);
+  }
   loadSettings();
   try {
     const stored = await invoke("load_sessions");

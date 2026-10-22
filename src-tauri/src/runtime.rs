@@ -20,6 +20,7 @@ const MLX_SERVER_SOURCE: &str = include_str!("../../runtime/server.py");
 const CONVERTER_SOURCE: &str = include_str!("../../runtime/convert_model.py");
 const BOOTSTRAP_SOURCE: &str = include_str!("../../runtime/bootstrap.py");
 const REQUIREMENTS_SOURCE: &str = include_str!("../../runtime/requirements.txt");
+const DEFAULT_SYSTEM_PROMPT_SOURCE: &str = include_str!("../../runtime/default_system_prompt.txt");
 
 #[derive(Clone)]
 pub(crate) struct RuntimeEnvironment {
@@ -80,6 +81,7 @@ fn write_runtime_sources(directory: &Path) -> Result<(), String> {
         ("convert_model.py", CONVERTER_SOURCE),
         ("bootstrap.py", BOOTSTRAP_SOURCE),
         ("requirements.txt", REQUIREMENTS_SOURCE),
+        ("default_system_prompt.txt", DEFAULT_SYSTEM_PROMPT_SOURCE),
     ] {
         fs::write(directory.join(name), content).map_err(|error| error.to_string())?;
     }

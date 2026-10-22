@@ -1053,7 +1053,7 @@ textarea:focus-visible {
 
 .system-prompt-input {
   height: auto;
-  min-height: 120px;
+  min-height: 240px;
   padding: 10px;
   line-height: 1.6;
   resize: vertical;

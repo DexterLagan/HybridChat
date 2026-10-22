@@ -95,10 +95,10 @@
           </label>
         </div>
         <label class="field-group system-prompt-field">
-          <span class="field-label">System prompt <span class="field-note">additional instructions</span></span>
-          <textarea id="system-prompt" class="settings-input system-prompt-input" rows="6" placeholder="For example: Answer concisely and include source URLs when searching." aria-describedby="system-prompt-help"></textarea>
+          <span class="field-label">Full system prompt <span class="field-note">editable</span></span>
+          <textarea id="system-prompt" class="settings-input system-prompt-input" rows="12" placeholder="Loading the built-in prompt…" aria-describedby="system-prompt-help"></textarea>
         </label>
-        <p id="system-prompt-help" class="settings-note">Saved on this Mac for all chats and both models. Appended to HybridAgent’s built-in system prompt for each new message after saving, including in existing chats. No model reload needed; current generations and past replies are unchanged. Leave blank to use only the built-in prompt.</p>
+        <p id="system-prompt-help" class="settings-note">The complete prompt used for every new message in all chat tabs and both models. Saved on this Mac and applied on the next message, with no model reload. Existing replies and a generation already running are unchanged. Clear the editor and save to restore the built-in default. Changing its format instructions may affect latent reasoning and tool calls.</p>
         <p class="settings-note">Text and thinking traces stream as they are generated. Use the arrows to reveal thinking. Stop hides the response; it cannot interrupt an already-running generation.</p>
         <div class="settings-actions">
           <button id="settings-cancel" class="quiet-button">cancel</button>

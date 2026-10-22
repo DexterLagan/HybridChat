@@ -9,6 +9,8 @@ use futures_util::StreamExt;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 
+const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../../runtime/default_system_prompt.txt");
+
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) client: reqwest::Client,
@@ -122,6 +124,11 @@ fn stop_chat(state: State<'_, AppState>, session_id: String) {
 }
 
 #[tauri::command]
+fn default_system_prompt() -> String {
+    DEFAULT_SYSTEM_PROMPT.to_string()
+}
+
+#[tauri::command]
 fn start_chat(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -226,6 +233,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            default_system_prompt,
             load_sessions,
             save_sessions,
             start_chat,

@@ -54,9 +54,9 @@ The bundle is written to `src-tauri/target/release/bundle/macos/HybridChat.app`.
 
 ## System prompt
 
-In **settings**, edit **System prompt (additional instructions)** and choose **save settings**. These instructions are stored locally on this Mac and apply globally to all chat tabs and both models. Cancel discards unsaved edits; clearing the editor and saving restores the built-in prompt alone.
+In **settings**, edit the full **System prompt** and choose **save settings**. The editor opens with the pinned HybridAgent prompt plus HybridChat's search guidance. The full prompt is stored locally on this Mac and shared by all chat tabs and both models. Cancel discards unsaved edits; clearing the editor and saving restores the default prompt.
 
-On each Send, HybridChat includes the saved text as a system message in that request. The engine appends it to HybridAgent's built-in protocol prompt before applying the model's chat template and processing the conversation. This preserves the model's latent/tool format. Changes take effect on the next message, including in an existing chat, without reloading the model. They do not alter previous replies or a generation already in progress. External API clients supply their own system messages; they do not inherit the desktop Settings value.
+On each Send, HybridChat passes the edited full prompt to the model before applying the model's chat template and processing the conversation. Changes take effect on the next message, including in an existing chat, without reloading the model. They do not alter previous replies or a generation already in progress. External API clients supply their own system messages; they do not inherit the desktop Settings value.
 
 ## OpenAI-compatible API
 
